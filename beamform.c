@@ -117,18 +117,18 @@ void *reflect_distance(void *arg){
 
 	//for (it_rx = 0; it_rx < trans_x * trans_y; it_rx++) {  // 1024 times
 	offset = range->start * data_len;
-	float *image_temp = (float *) malloc(pts_r * sls_t * sls_p * sizeof(float));
-	memset(image_temp, 0, pts_r * sls_t * sls_p * sizeof(float));
+	// float *image_temp = (float *) malloc(pts_r * sls_t * sls_p * sizeof(float));
+	// memset(image_temp, 0, pts_r * sls_t * sls_p * sizeof(float));
 
-	float *original_image_temp = image_temp;
+	// float *original_image_temp = image_temp;
 
 
 
 	for (it_rx = range->start; it_rx < range->end; it_rx++) {  // 1024 times
 
-		//image_pos = image; // Reset image pointer back to beginning
+		image_pos = image; // Reset image pointer back to beginning
 		point = 0;
-		image_temp = original_image_temp;
+		//image_temp = original_image_temp;
 		// Iterate over entire image space
 		for (it_t = 0; it_t < sls_t; it_t++) {    // whatever size is
 			for (it_p = 0; it_p < sls_p; it_p++) { // whatever size is
@@ -144,20 +144,23 @@ void *reflect_distance(void *arg){
 
 					dist = dist_tx[point++] + (float)sqrt(x_comp + y_comp + z_comp); // change to local
 					index = (int)(dist/idx_const + filter_delay + 0.5);
-					*image_temp = rx_data[index+offset];
-					image_temp++;
-					// *image_pos += rx_data[index+offset];
-					// image_pos++;
+					// *image_temp = rx_data[index+offset];
+					// image_temp++;
+					pthread_mutex_lock(&lock);
+					*image_pos += rx_data[index+offset];
+					image_pos++;
+					pthread_mutex_unlock(&lock);
+
 				}
 			}
 		}
 		offset += data_len;
 	}
 
-	pthread_mutex_lock(&lock);
-	*image_pos += rx_data[index+offset];
-	image_pos++;
-	pthread_mutex_unlock(&lock);
+	// pthread_mutex_lock(&lock);
+	// *image_pos += rx_data[index+offset];
+	// image_pos++;
+	// pthread_mutex_unlock(&lock);
 
 }
 
