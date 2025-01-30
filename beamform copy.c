@@ -155,6 +155,7 @@ int main (int argc, char **argv) {
 		for (it_t = 0; it_t < sls_t; it_t++) {
 			for (it_p = 0; it_p < sls_p; it_p++) {
 				for (it_r = 0; it_r < pts_r; it_r++) {
+					
 
 					x_comp = rx_x[it_rx] - point_x[point];
 					x_comp = x_comp * x_comp;

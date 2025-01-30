@@ -12,6 +12,7 @@
 
 #define NUM_THREADS_REFLECT 8
 #define NUM_THREADS_TRANSMIT 8
+#define NUM_THREADS_GRAND 8
 
 
 
@@ -20,6 +21,14 @@ typedef struct thread_args{
     int end;
 	float *image_temp;
 }thread_args;
+
+typedef struct grand_thread_args{
+    int start;
+    int end;
+	float *image_temp;
+	int offset;
+	int it_rx;
+}grand_thread_args;
 
 int sls_t; // Number of scanlines in theta
 int sls_p;
@@ -93,6 +102,51 @@ void *transmit_distance(void *arg){
 }
 
 
+void *divide_row(void *arg){
+
+	grand_thread_args *thread_info = (struct grand_thread_args *) arg;
+
+	int point = 0;
+	int it_t; // Iterator for theta
+	int it_p; // Iterator for phi
+	int it_r; // Iterator for r
+	int index; // Index into transducer data
+	float x_comp; // Itermediate value for dist calc
+	float y_comp; // Itermediate value for dist calc
+	float z_comp; // Itermediate value for dist calc
+	float dist;
+
+	int it_rx = thread_info->it_rx;
+	int offset = thread_info->offset;
+	float *image_temp_og = thread_info->image_temp;
+	float *image_temp;
+
+
+	for (it_t = thread_info->start; it_t < thread_info->end; it_t++) {    // whatever size is
+			for (it_p = 0; it_p < sls_p; it_p++) { // whatever size is
+				point = it_t * sls_p * 1056 + it_p * 1056;
+				image_temp = it_t * sls_p * 1056 + it_p * 1056 + image_temp_og; 
+				for (it_r = 0; it_r < pts_r; it_r++) { //1056
+
+					x_comp = rx_x[it_rx] - point_x[point];
+					x_comp = x_comp * x_comp;
+					y_comp = rx_y[it_rx] - point_y[point];
+					y_comp = y_comp * y_comp;
+					z_comp = rx_z - point_z[point];
+					z_comp = z_comp * z_comp;
+
+
+					dist = dist_tx[point++] + (float)sqrt(x_comp + y_comp + z_comp); // change to local
+					index = (int)(dist/idx_const + filter_delay + 0.5);
+					*image_temp += rx_data[index+offset];
+					image_temp++;
+
+				}
+			}
+		}
+}
+
+
 void *reflect_distance(void *arg){
 /* Now compute reflected distance, find index values, add to image */
 
@@ -113,35 +167,39 @@ void *reflect_distance(void *arg){
 	float *image_temp = thread_info->image_temp;
 
 	offset = thread_info->start * data_len;
+
+	pthread_t grand_threads[NUM_THREADS_GRAND];
+	grand_thread_args grand_work_ranges[NUM_THREADS_GRAND];
+
+   
+	
+
+
 	for (it_rx = thread_info->start; it_rx < thread_info->end; it_rx++) {  // 1024 times
 
-		//image_pos = image; // Reset image pointer back to beginning
 		point = 0;
 		image_temp = thread_info->image_temp;
+		
+		int current_start = 0;
+    	int range = sls_t / NUM_THREADS_GRAND;
+		int it_threads;
 
-		// Iterate over entire image space
-		for (it_t = 0; it_t < sls_t; it_t++) {    // whatever size is
-			for (it_p = 0; it_p < sls_p; it_p++) { // whatever size is
-				for (it_r = 0; it_r < pts_r; it_r++) { //1056
-					
-					x_comp = rx_x[it_rx] - point_x[point];
-					x_comp = x_comp * x_comp;
-					y_comp = rx_y[it_rx] - point_y[point];
-					y_comp = y_comp * y_comp;
-					z_comp = rx_z - point_z[point];
-					z_comp = z_comp * z_comp;
-
-
-					dist = dist_tx[point++] + (float)sqrt(x_comp + y_comp + z_comp); // change to local
-					index = (int)(dist/idx_const + filter_delay + 0.5);
-					*image_temp += rx_data[index+offset];
-					image_temp++;
-
-				}
-			}
+		for(it_threads = 0; it_threads < NUM_THREADS_GRAND; it_threads++) {
+			grand_work_ranges[it_threads].start = current_start;
+			grand_work_ranges[it_threads].end = current_start + range;
+			grand_work_ranges[it_threads].offset = offset;
+			grand_work_ranges[it_threads].image_temp = image_temp;
+			grand_work_ranges[it_threads].it_rx = it_rx;
+			current_start += range;
 		}
+		grand_work_ranges[NUM_THREADS_TRANSMIT-1].end = sls_t;
+
 		offset += data_len;
-	}
+
+    }
+		// Iterate over entire image space
+		
+	
 
 }
 
