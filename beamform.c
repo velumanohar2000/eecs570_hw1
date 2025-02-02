@@ -10,10 +10,9 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#define NUM_THREADS_TRANSMIT 8
+#define NUM_THREADS_REFLECT 16
+#define NUM_THREADS_TRANSMIT 2
 #define NUM_THREADS_X 8
-
-
 
 
 typedef struct thread_args{
@@ -22,14 +21,13 @@ typedef struct thread_args{
 	float *image_temp;
 }thread_args;
 
-
 typedef struct args_divide_x{
     int start;
     int end;
 	int it_rx;
 	int offset;
+	float *image_temp;
 }args_divide_x;
-
 
 int sls_t; // Number of scanlines in theta
 int sls_p;
@@ -102,8 +100,6 @@ void *transmit_distance(void *arg){
 	}
 }
 
-
-
 void *divide_x_image(void *arg){
 	args_divide_x *thread_info = (struct args_divide_x *) arg;
 
@@ -120,7 +116,7 @@ void *divide_x_image(void *arg){
 	int offset = thread_info->offset;
 
 	int point = thread_info->start * sls_p * pts_r;
-	float *image_pos = image + thread_info->start * sls_p * pts_r;
+	float *image_pos = thread_info->image_temp + thread_info->start * sls_p * pts_r;
 
 
 	for (it_t = thread_info->start; it_t < thread_info->end; it_t++) {    // whatever size is
@@ -146,8 +142,10 @@ void *divide_x_image(void *arg){
 
 
 
-void reflect_distance(){
+void *reflect_distance(void *arg){
 /* Now compute reflected distance, find index values, add to image */
+
+	thread_args *thread_info = (struct thread_args *) arg;
 
 	int point = 0;
 	int it_rx; // Iterator for recieve transducer
@@ -161,11 +159,14 @@ void reflect_distance(){
 	float dist;
 	int offset = 0;
 	float *image_pos; // Pointer to current position in image
+	float *image_temp = thread_info->image_temp;
 
-	for (it_rx = 0; it_rx < trans_x * trans_y; it_rx++) {  // 1024 times
+	offset = thread_info->start * data_len;
+	for (it_rx = thread_info->start; it_rx < thread_info->end; it_rx++) {  // 1024 times
 
-		image_pos = image; // Reset image pointer back to beginning
+		//image_pos = image; // Reset image pointer back to beginning
 		point = 0;
+		image_temp = thread_info->image_temp;
 
 		args_divide_x divide_x_args[NUM_THREADS_X];
 		pthread_t child_reflect_x[NUM_THREADS_X];
@@ -180,6 +181,7 @@ void reflect_distance(){
 			divide_x_args[i].end = current_start + range;
 			divide_x_args[i].it_rx = it_rx;
 			divide_x_args[i].offset = offset;
+			divide_x_args[i].image_temp = image_temp;
 			current_start += range;
 
 		}
@@ -191,7 +193,6 @@ void reflect_distance(){
     	for(i = 0; i < NUM_THREADS_X; i++) {
         	pthread_join(child_reflect_x[i], NULL);
     	}
-
 		offset += data_len;
 	}
 
@@ -291,6 +292,7 @@ int main (int argc, char **argv) {
 
     int current_start, range;
 	int i = 0;
+	int j = 0;
 
 	// Transmit thread init
 	pthread_t transmit_threads[NUM_THREADS_TRANSMIT];
@@ -305,7 +307,33 @@ int main (int argc, char **argv) {
     }
     transmit_work_ranges[NUM_THREADS_TRANSMIT-1].end = total_angles;
 
+	// Reflect Thread init
+	pthread_t reflect_threads[NUM_THREADS_REFLECT];
+	thread_args reflect_work_ranges[NUM_THREADS_REFLECT];
+	float **temp_images = (float **)malloc(NUM_THREADS_REFLECT * sizeof(float *));
+
+
+	current_start = 0;
+    range = 1024 / NUM_THREADS_REFLECT;
+    for(i = 0; i < NUM_THREADS_REFLECT; i++) {
+        reflect_work_ranges[i].start = current_start;
+        reflect_work_ranges[i].end = current_start + range;
+
+		temp_images[i] = (float *)malloc(pts_r * sls_t * sls_p * sizeof(float));
+		if (temp_images[i] == NULL) fprintf(stderr, "Bad malloc on temp_images[%d]\n", i);
+		memset(temp_images[i], 0, pts_r * sls_t * sls_p * sizeof(float));
+
+		reflect_work_ranges[i].image_temp = temp_images[i];
+
+		current_start += range;
+    }
+    reflect_work_ranges[NUM_THREADS_REFLECT-1].end = 1024;
+
 	
+	
+
+
+
 
 	/* get start timestamp */
  	struct timeval tv;
@@ -320,11 +348,27 @@ int main (int argc, char **argv) {
         pthread_join(transmit_threads[i], NULL);
     }
 
+
 	gettimeofday(&tv,NULL);
     uint64_t end_transmit = tv.tv_sec*(uint64_t)1000000+tv.tv_usec;
     uint64_t elapsed_transmit = end_transmit - start;
 
-	reflect_distance();
+
+	for(i = 0; i < NUM_THREADS_REFLECT; i++) {
+        pthread_create(&reflect_threads[i], NULL, reflect_distance, &reflect_work_ranges[i]);
+    }
+    for(i = 0; i < NUM_THREADS_REFLECT; i++) {
+        pthread_join(reflect_threads[i], NULL);
+    }
+
+	    // Combine temporary images into the final image
+    for (i = 0; i < NUM_THREADS_REFLECT; i++) {
+        for (j = 0; j < pts_r * sls_t * sls_p; j++) {
+            image[j] += temp_images[i][j];
+        }
+        free(temp_images[i]);
+    }
+	free(temp_images);
 
 	
 
