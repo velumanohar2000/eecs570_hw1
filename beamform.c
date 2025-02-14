@@ -10,7 +10,7 @@
 #include <sys/time.h>
 #include <pthread.h>
 
-#define NUM_THREADS 32
+#define NUM_THREADS 244
 
 /* Variables for transducer geometry */
 int trans_x = 32; // Transducers in x dim

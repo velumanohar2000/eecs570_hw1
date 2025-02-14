@@ -1,0 +1,7 @@
+Beginning computation
+@@@ Elapsed time (usec): 3665513
+Processing complete.  Preparing output.
+Output complete.
+
+RMS: 3.602438e-17
+
